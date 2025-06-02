@@ -1,3 +1,4 @@
+
 "use client";
 
 import type * as React from 'react';
@@ -28,18 +29,34 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Terminal, Globe, ServerIcon, Gamepad2, Info, CheckCircle2 } from 'lucide-react';
-import type { ServiceMetadata, RegisteredService } from '@/types';
+import { Terminal, Globe, ServerIcon, Gamepad2, Info, CheckCircle2, FileJson } from 'lucide-react';
+import type { ServiceRegistrationApiPayload, RegisteredService } from '@/types';
 
 const serviceSchema = z.object({
   name: z.string().min(3, 'Service name must be at least 3 characters long.'),
   description: z.string().min(10, 'Description must be at least 10 characters long.').max(200, 'Description must be at most 200 characters.'),
-  port: z.coerce.number().min(1, 'Port number must be positive.').max(65535, 'Port number must be less than 65536.'),
-  domain: z.string().optional().refine(val => !val || /^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(val), {
-    message: "Invalid domain format (e.g., myapp.panda.gg or sub.domain.com)",
-  }),
-  type: z.enum(['website', 'api', 'game'], { required_error: 'Please select a service type.' }),
-  publicUrl: z.string().url('Please enter a valid public URL (e.g., from ngrok).'),
+  local_url: z.string().url('Please enter a valid local URL (e.g., http://localhost:3000 or http://127.0.0.1:8080).'),
+  domain: z.string().optional().refine(val => {
+    if (!val || val.trim() === '') return true; // Optional field
+    return /^[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)*\.(panda|pinou|pika|ninar|nation)$/.test(val);
+  }, {
+    message: "Invalid domain. Must be like 'myservice.panda' or 'app.myservice.pinou'. Allowed suffixes: .panda, .pinou, .pika, .ninar, .nation. Use alphanumeric characters and hyphens for name parts.",
+  }).transform(val => val === "" ? undefined : val), // Treat empty string as undefined
+  type: z.enum(['website', 'api', 'game', 'other'], { required_error: 'Please select a service type.' }),
+  customType: z.string().optional(),
+  publicUrl: z.string().url('Please enter a valid public URL (e.g., from ngrok, playit.gg).'),
+}).superRefine((data, ctx) => {
+  if (data.type === 'other' && (!data.customType || data.customType.trim().length < 2)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Custom type must be at least 2 characters long when "Other" is selected.',
+      path: ['customType'],
+    });
+  }
+  if (data.type !== 'other' && data.customType && data.customType.trim() !== '') {
+     // Clear customType if another type is selected and customType has a value
+    // This is handled by form logic to reset the field, schema doesn't need to error
+  }
 });
 
 type ServiceFormValues = z.infer<typeof serviceSchema>;
@@ -49,7 +66,6 @@ interface ServiceRegistrationFormProps {
 }
 
 export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormProps) {
-  const [localUrl, setLocalUrl] = useState<string>('http://localhost:');
   const [registeredServiceInfo, setRegisteredServiceInfo] = useState<RegisteredService | null>(null);
   const { toast } = useToast();
 
@@ -58,26 +74,45 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
     defaultValues: {
       name: '',
       description: '',
-      port: 3000,
+      local_url: '',
       domain: '',
       type: undefined,
+      customType: '',
       publicUrl: '',
     },
   });
 
-  const portValue = form.watch('port');
+  const watchedServiceType = form.watch('type');
+  const watchedLocalUrl = form.watch('local_url');
 
   useEffect(() => {
-    if (portValue) {
-      setLocalUrl(`http://localhost:${portValue}`);
-    } else {
-      setLocalUrl('http://localhost:');
+    if (watchedServiceType !== 'other') {
+      form.setValue('customType', ''); // Clear customType if not 'other'
     }
-  }, [portValue]);
+  }, [watchedServiceType, form]);
+  
+  let isValidLocalUrl = false;
+  try {
+    if (watchedLocalUrl) new URL(watchedLocalUrl);
+    isValidLocalUrl = true;
+  } catch (e) {
+    isValidLocalUrl = false;
+  }
+
 
   const onSubmit: SubmitHandler<ServiceFormValues> = async (data) => {
     const token = crypto.randomUUID();
-    const serviceDataWithToken: ServiceMetadata & { token: string } = { ...data, token };
+    const finalServiceType = data.type === 'other' ? data.customType! : data.type;
+
+    const apiPayload: ServiceRegistrationApiPayload = {
+      name: data.name,
+      description: data.description,
+      local_url: data.local_url,
+      public_url: data.publicUrl, // Map from form's publicUrl to API's public_url
+      domain: data.domain || undefined, // Ensure domain is undefined if empty string from form
+      type: finalServiceType,
+      token: token,
+    };
 
     try {
       const response = await fetch('/api/register', {
@@ -85,7 +120,7 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(serviceDataWithToken),
+        body: JSON.stringify(apiPayload),
       });
 
       if (!response.ok) {
@@ -103,7 +138,15 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
       if (onSuccess) {
         onSuccess(result);
       }
-      form.reset();
+      form.reset({ // Reset with potentially new defaults if needed
+        name: '',
+        description: '',
+        local_url: '',
+        domain: '',
+        type: undefined,
+        customType: '',
+        publicUrl: '',
+      });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unknown error occurred.';
       toast({
@@ -123,7 +166,7 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
           PANDA Service Registration
         </CardTitle>
         <CardDescription>
-          Enter your service details to generate a public tunnel and register it.
+          Enter your service details to generate a public tunnel and register it with PANDA.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -160,16 +203,16 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <FormField
                 control={form.control}
-                name="port"
+                name="local_url"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Local Port</FormLabel>
+                    <FormLabel>Local URL</FormLabel>
                     <FormControl>
-                      <Input type="number" placeholder="e.g., 3000" {...field} />
+                      <Input type="text" placeholder="e.g., http://localhost:3000" {...field} />
                     </FormControl>
-                    {localUrl !== 'http://localhost:' && (
+                     {watchedLocalUrl && isValidLocalUrl && (
                        <FormDescription className="flex items-center mt-2">
-                         <Info className="w-4 h-4 mr-1 text-muted-foreground" /> Local access: <a href={localUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-primary hover:underline">{localUrl}</a>
+                         <Info className="w-4 h-4 mr-1 text-muted-foreground" /> Local access: <a href={watchedLocalUrl} target="_blank" rel="noopener noreferrer" className="ml-1 text-primary hover:underline">{watchedLocalUrl}</a>
                        </FormDescription>
                     )}
                     <FormMessage />
@@ -183,7 +226,7 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Service Type</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select service type" />
@@ -199,6 +242,9 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
                         <SelectItem value="game">
                           <span className="flex items-center"><Gamepad2 className="mr-2 h-4 w-4" /> Game</span>
                         </SelectItem>
+                        <SelectItem value="other">
+                          <span className="flex items-center"><FileJson className="mr-2 h-4 w-4" /> Other...</span>
+                        </SelectItem>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -206,18 +252,34 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
                 )}
               />
             </div>
+            
+            {watchedServiceType === 'other' && (
+              <FormField
+                control={form.control}
+                name="customType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Custom Service Type</FormLabel>
+                    <FormControl>
+                      <Input placeholder="e.g., Database, Bot, Custom Service" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            )}
 
             <FormField
               control={form.control}
               name="domain"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Custom Domain (Optional)</FormLabel>
+                  <FormLabel>Custom PANDA Domain (Optional)</FormLabel>
                   <FormControl>
-                    <Input placeholder="e.g., myapp.panda.gg" {...field} />
+                    <Input placeholder="e.g., myapp.panda" {...field} value={field.value ?? ""} />
                   </FormControl>
                   <FormDescription>
-                    If you have a custom domain for your tunnel.
+                    Your unique address on the PANDA network. Allowed suffixes: .panda, .pinou, .pika, .ninar, .nation.
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -234,7 +296,7 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
                     <Input placeholder="https://your-tunnel-id.ngrok.io" {...field} />
                   </FormControl>
                   <FormDescription>
-                    The public URL provided by your tunneling service (e.g., ngrok, playit.gg).
+                    The public URL provided by your tunneling service (e.g., ngrok, Cloudflare Tunnel, playit.gg).
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -253,9 +315,11 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
             <AlertTitle className="text-primary font-semibold">Service Registered Successfully!</AlertTitle>
             <AlertDescription className="mt-2 space-y-1 text-foreground/80">
               <p><strong>Name:</strong> {registeredServiceInfo.name}</p>
+              <p><strong>Type:</strong> {registeredServiceInfo.type}</p>
               <p><strong>Token:</strong> <code className="bg-muted px-1 py-0.5 rounded text-sm">{registeredServiceInfo.token}</code></p>
-              <p><strong>Public URL:</strong> <a href={registeredServiceInfo.publicUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{registeredServiceInfo.publicUrl}</a></p>
-              {registeredServiceInfo.domain && <p><strong>Custom Domain:</strong> {registeredServiceInfo.domain}</p>}
+              <p><strong>Local URL:</strong> <a href={registeredServiceInfo.local_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{registeredServiceInfo.local_url}</a></p>
+              <p><strong>Public URL:</strong> <a href={registeredServiceInfo.public_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{registeredServiceInfo.public_url}</a></p>
+              {registeredServiceInfo.domain && <p><strong>PANDA Domain:</strong> {registeredServiceInfo.domain}</p>}
               <p><strong>Registered At:</strong> {new Date(registeredServiceInfo.createdAt).toLocaleString()}</p>
             </AlertDescription>
           </Alert>

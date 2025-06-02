@@ -1,22 +1,28 @@
+
 import { NextResponse, type NextRequest } from 'next/server';
-import type { ServiceMetadata, RegisteredService } from '@/types';
+import type { ServiceRegistrationApiPayload, RegisteredService } from '@/types';
 
 // In a real application, this would interact with a database or an external service.
 // For this example, we'll just simulate it.
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as ServiceMetadata & { token: string };
+    const body = await request.json() as ServiceRegistrationApiPayload;
 
     // Basic validation (more robust validation should be done)
-    if (!body.name || !body.port || !body.type || !body.publicUrl || !body.token) {
-      return NextResponse.json({ message: 'Missing required fields.' }, { status: 400 });
+    if (!body.name || !body.local_url || !body.type || !body.public_url || !body.token) {
+      return NextResponse.json({ message: 'Missing required fields (name, local_url, type, public_url, token).' }, { status: 400 });
     }
 
     const registeredService: RegisteredService = {
       id: crypto.randomUUID(), // Generate a unique ID for this registration
-      ...body,
-      localUrl: `http://localhost:${body.port}`,
+      name: body.name,
+      description: body.description,
+      local_url: body.local_url,
+      public_url: body.public_url,
+      domain: body.domain,
+      type: body.type,
+      token: body.token,
       createdAt: new Date().toISOString(),
     };
 
