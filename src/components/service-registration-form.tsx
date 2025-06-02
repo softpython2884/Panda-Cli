@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import { useForm, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { v4 as uuidv4 } from 'uuid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -101,7 +102,7 @@ export function ServiceRegistrationForm({ onSuccess }: ServiceRegistrationFormPr
 
 
   const onSubmit: SubmitHandler<ServiceFormValues> = async (data) => {
-    const token = crypto.randomUUID();
+    const token = uuidv4();
     const finalServiceType = data.type === 'other' ? data.customType! : data.type;
 
     const apiPayload: ServiceRegistrationApiPayload = {

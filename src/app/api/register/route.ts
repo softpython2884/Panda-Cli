@@ -1,6 +1,7 @@
 
 import { NextResponse, type NextRequest } from 'next/server';
 import type { ServiceRegistrationApiPayload, RegisteredService } from '@/types';
+import { v4 as uuidv4 } from 'uuid';
 
 // In a real application, this would interact with a database or an external service.
 // For this example, we'll just simulate it.
@@ -15,7 +16,7 @@ export async function POST(request: NextRequest) {
     }
 
     const registeredService: RegisteredService = {
-      id: crypto.randomUUID(), // Generate a unique ID for this registration
+      id: uuidv4(), // Generate a unique ID for this registration
       name: body.name,
       description: body.description,
       local_url: body.local_url,
